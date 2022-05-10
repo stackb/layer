@@ -5,7 +5,7 @@ Print info about container image tarballs.
 ## Installation
 
 ```sh
-go get github.com/stackb/layer
+go install github.com/stackb/layer@latest
 ```
 
 ## Usage
