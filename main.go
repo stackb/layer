@@ -10,7 +10,11 @@ import (
 	"text/tabwriter"
 
 	"github.com/dustin/go-humanize"
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/crane"
+	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/urfave/cli/v2"
 )
@@ -68,15 +72,47 @@ func main() {
 	app.Run(os.Args)
 }
 
-func getImage(filename string) (v1.Image, error) {
-	if filename == "" {
-		return nil, fmt.Errorf("no filename provided")
+func getImage(r string) (v1.Image, error) {
+	if r == "" {
+		return nil, fmt.Errorf("no image ref provided")
 	}
-	image, err := tarball.ImageFromPath(filename, nil)
+
+	image, _, err := getRemoteImage(r)
+	if err == nil {
+		return image, nil
+	}
+
+	image, err = tarball.ImageFromPath(r, nil)
 	if err != nil {
 		return nil, err
 	}
+
 	return image, nil
+}
+
+func makeOptions(opts ...crane.Option) crane.Options {
+	opt := crane.Options{
+		Remote: []remote.Option{
+			remote.WithAuthFromKeychain(authn.DefaultKeychain),
+		},
+	}
+	for _, o := range opts {
+		o(&opt)
+	}
+	return opt
+}
+
+func getRemoteImage(r string, opt ...crane.Option) (v1.Image, name.Reference, error) {
+	o := makeOptions(opt...)
+	ref, err := name.ParseReference(r, o.Name...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parsing reference %q: %w", r, err)
+	}
+	img, err := remote.Image(ref, o.Remote...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("reading image %q: %w", ref, err)
+	}
+	return img, ref, nil
 }
 
 // info returns the config file for the given filename.
