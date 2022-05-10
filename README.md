@@ -1,6 +1,10 @@
-# layer
+<p align="center">
+  <img alt="GoReleaser Logo" src="layer.png"/>
+  <h3 align="center">Layer</h3>
+  <p align="center">A tool for inspecting container layers</p>
+</p>
 
-Print info about container image layers.
+---
 
 ```
 NAME:
@@ -21,7 +25,7 @@ GLOBAL OPTIONS:
 ## Installation
 
 ```sh
-$ go install github.com/stackb/layer@latest
+go install github.com/stackb/layer@latest
 ```
 
 ## Usage
@@ -29,13 +33,13 @@ $ go install github.com/stackb/layer@latest
 Show layers in an image (tarball filename):
 
 ```sh
-$ layer info image.tar
+layer info image.tar
 ```
 
 Show layers in an image (ref):
 
 ```
-$ layer info index.docker.io/nginx:latest
+layer info index.docker.io/nginx:latest
 N  Layer                                                                    Size
 1  sha256:9c1b6dd6c1e6be9fdd2b1987783824670d3b0dd7ae8ad6f57dc3cea5739ac71e  31 MB
 2  sha256:4b7fffa0f0a4a72b2f901c584c1d4ffb67cce7f033cc7969ee7713995c4d2610  25 MB
@@ -48,16 +52,16 @@ N  Layer                                                                    Size
 List files in an image:
 
 ```sh
-$ layer ls image.tar    # all layers
-$ layer ls -S image.tar # sorted
-$ layer ls image.tar 1  # first layer
-$ layer ls image.tar sha256:8fdc131ec4308d2b9196a38855550dc347e83cc0f47d739754ddeb6e03ac2cbe # by diff ID
+layer ls image.tar    # all layers
+layer ls -S image.tar # sorted
+layer ls image.tar 1  # first layer
+layer ls image.tar sha256:8fdc131ec4308d2b9196a38855550dc347e83cc0f47d739754ddeb6e03ac2cbe # by diff ID
 ```
 
 List files in an image (ref):
 
 ```sh
-$ layer ls -S index.docker.io/nginx:latest
+layer ls -S index.docker.io/nginx:latest
 ...
 -rw-r--r--  0 B     var/lib/ucf/hashfile
 -rw-r--r--  0 B     var/lib/ucf/registry
@@ -81,3 +85,8 @@ Mode        Size    Name
 Mode        Size    Name
 -rwxrwxr-x  4.6 kB  docker-entrypoint.d/30-tune-worker-processes.sh
 ```
+
+---
+
+<a href="https://www.flaticon.com/free-icons/hangar" style="font-size: 8px" title="hangar icons">Layer
+Image by Pause08</a>
