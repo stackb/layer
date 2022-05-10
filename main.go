@@ -14,16 +14,11 @@ import (
 	"github.com/google/go-containerregistry/pkg/crane"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/daemon"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/urfave/cli/v2"
 )
-
-type config struct {
-	filename string
-	layerIDs []string
-	sort     bool
-}
 
 func main() {
 	app := &cli.App{
@@ -31,13 +26,13 @@ func main() {
 		Usage: "inspect layers of an image",
 		Commands: []*cli.Command{
 			{
-				Name:  "info",
-				Usage: "info prints info about the layers of an image",
+				Name:  "inspect",
+				Usage: "print info about the layers of an image",
 				Action: func(c *cli.Context) error {
 					cfg := &config{
-						filename: c.Args().First(),
+						ref: c.Args().First(),
 					}
-					if err := info(cfg); err != nil {
+					if err := inspect(cfg); err != nil {
 						return cli.Exit(c.Command.Name+": "+err.Error(), 1)
 					}
 					return nil
@@ -48,12 +43,12 @@ func main() {
 				Usage: "ls prints the files of a layer",
 				Action: func(c *cli.Context) error {
 					cfg := &config{
-						filename: c.Args().First(),
+						ref:      c.Args().First(),
 						layerIDs: c.Args().Tail(),
 						sort:     c.Bool("sort"),
 					}
 
-					if err := files(cfg); err != nil {
+					if err := ls(cfg); err != nil {
 						return cli.Exit(c.Command.Name+": "+err.Error(), 1)
 					}
 					return nil
@@ -72,24 +67,17 @@ func main() {
 	app.Run(os.Args)
 }
 
-func getImage(r string) (v1.Image, error) {
-	if r == "" {
-		return nil, fmt.Errorf("no image ref provided")
-	}
-
-	image, _, err := getRemoteImage(r)
-	if err == nil {
-		return image, nil
-	}
-
-	image, err = tarball.ImageFromPath(r, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return image, nil
+// config is the configuration for the layer commands.
+type config struct {
+	// ref is the image ref to inspect, or a path to a tarball.
+	ref string
+	// layerIDs is the list of layer IDs to inspect.
+	layerIDs []string
+	// sort is true if the output should be sorted by size.
+	sort bool
 }
 
+// makeOptions returns the options for crane.
 func makeOptions(opts ...crane.Option) crane.Options {
 	opt := crane.Options{
 		Remote: []remote.Option{
@@ -102,6 +90,31 @@ func makeOptions(opts ...crane.Option) crane.Options {
 	return opt
 }
 
+// getImage returns the image for the given ref.
+func getImage(r string) (v1.Image, error) {
+	if r == "" {
+		return nil, fmt.Errorf("no image ref provided")
+	}
+
+	image, err := tarball.ImageFromPath(r, nil)
+	if err == nil {
+		return image, nil
+	}
+
+	image, _, err = getDaemonImage(r)
+	if err == nil {
+		return image, nil
+	}
+
+	image, _, err = getRemoteImage(r)
+	if err == nil {
+		return image, nil
+	}
+
+	return nil, fmt.Errorf("unable to find image %q", r)
+}
+
+// getRemoteImage returns the image for the given ref.
 func getRemoteImage(r string, opt ...crane.Option) (v1.Image, name.Reference, error) {
 	o := makeOptions(opt...)
 	ref, err := name.ParseReference(r, o.Name...)
@@ -115,9 +128,23 @@ func getRemoteImage(r string, opt ...crane.Option) (v1.Image, name.Reference, er
 	return img, ref, nil
 }
 
-// info returns the config file for the given filename.
-func info(cfg *config) error {
-	image, err := getImage(cfg.filename)
+// getDaemonImage returns the image for the given ref.
+func getDaemonImage(r string, opt ...crane.Option) (v1.Image, name.Reference, error) {
+	o := makeOptions(opt...)
+	ref, err := name.ParseReference(r, o.Name...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parsing reference %q: %w", r, err)
+	}
+	img, err := daemon.Image(ref)
+	if err != nil {
+		return nil, nil, fmt.Errorf("reading image %q: %w", ref, err)
+	}
+	return img, ref, nil
+}
+
+// inspect prints info about layers.
+func inspect(cfg *config) error {
+	image, err := getImage(cfg.ref)
 	if err != nil {
 		return err
 	}
@@ -145,9 +172,9 @@ func info(cfg *config) error {
 	return tw.Flush()
 }
 
-func files(cfg *config) error {
-
-	image, err := getImage(cfg.filename)
+// ls prints layers.
+func ls(cfg *config) error {
+	image, err := getImage(cfg.ref)
 	if err != nil {
 		return err
 	}
@@ -159,7 +186,7 @@ func files(cfg *config) error {
 
 	if len(cfg.layerIDs) == 0 {
 		for _, layer := range layers {
-			if err := layerFiles(cfg, layer); err != nil {
+			if err := files(cfg, layer); err != nil {
 				return err
 			}
 		}
@@ -171,7 +198,7 @@ func files(cfg *config) error {
 			if n < 1 || n > len(layers) {
 				return fmt.Errorf("layer %d does not exist", n)
 			}
-			if err := layerFiles(cfg, layers[n-1]); err != nil {
+			if err := files(cfg, layers[n-1]); err != nil {
 				return err
 			}
 			continue
@@ -187,7 +214,7 @@ func files(cfg *config) error {
 		if err != nil {
 			return fmt.Errorf("layer %s not found: %w", id, err)
 		}
-		if err := layerFiles(cfg, layer); err != nil {
+		if err := files(cfg, layer); err != nil {
 			return err
 		}
 	}
@@ -195,7 +222,8 @@ func files(cfg *config) error {
 	return nil
 }
 
-func layerFiles(cfg *config, layer v1.Layer) error {
+// files lists the files in the given layer.
+func files(cfg *config, layer v1.Layer) error {
 	hash, err := layer.DiffID()
 	if err != nil {
 		return fmt.Errorf("getting layer diffid: %w", err)

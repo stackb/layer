@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="GoReleaser Logo" src="layer.png"/>
+  <img alt="Layer Logo" src="layer.png"/>
   <h3 align="center">Layer</h3>
   <p align="center">A tool for inspecting container layers</p>
 </p>
@@ -14,7 +14,7 @@ USAGE:
    layer [global options] command [command options] [arguments...]
 
 COMMANDS:
-   info     info prints info about the layers of an image
+   inspect  print info about the layers of an image
    ls       ls prints the files of a layer
    help, h  Shows a list of commands or help for one command
 
@@ -33,13 +33,13 @@ go install github.com/stackb/layer@latest
 Show layers in an image (tarball filename):
 
 ```sh
-layer info image.tar
+layer inspect image.tar
 ```
 
 Show layers in an image (ref):
 
 ```
-layer info index.docker.io/nginx:latest
+layer inspect index.docker.io/nginx:latest
 N  Layer                                                                    Size
 1  sha256:9c1b6dd6c1e6be9fdd2b1987783824670d3b0dd7ae8ad6f57dc3cea5739ac71e  31 MB
 2  sha256:4b7fffa0f0a4a72b2f901c584c1d4ffb67cce7f033cc7969ee7713995c4d2610  25 MB
@@ -88,5 +88,6 @@ Mode        Size    Name
 
 ---
 
-<a href="https://www.flaticon.com/free-icons/hangar" style="font-size: 8px" title="hangar icons">Layer
-Image by Pause08</a>
+- See also https://github.com/wagoodman/dive.
+- <a href="https://www.flaticon.com/free-icons/hangar" style="font-size: 8px" title="hangar icons">Layer
+  Image by Pause08</a>
