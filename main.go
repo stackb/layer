@@ -10,7 +10,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/dustin/go-humanize"
-	"github.com/google/go-containerregistry/pkg/v1"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/urfave/cli/v2"
 )
@@ -92,7 +92,7 @@ func info(cfg *config) error {
 	}
 
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	tw.Write([]byte("N\tLayer\tSize\tHuman\tType\n"))
+	tw.Write([]byte("N\tLayer\tSize\n"))
 	for i, layer := range layers {
 		hash, err := layer.DiffID()
 		if err != nil {
@@ -103,11 +103,7 @@ func info(cfg *config) error {
 			return err
 		}
 		hs := humanize.Bytes(uint64(size))
-		mt, err := layer.MediaType()
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(tw, "%d\t%s\t%d\t%s\t%s\n", i+1, hash, size, hs, mt)
+		fmt.Fprintf(tw, "%d\t%s\t%s\n", i+1, hash, hs)
 	}
 
 	return tw.Flush()
