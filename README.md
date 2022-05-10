@@ -28,6 +28,9 @@ GLOBAL OPTIONS:
 go install github.com/stackb/layer@latest
 ```
 
+Or, download a precompiled binary
+[release](https://github.com/stackb/layer/releases).
+
 ## Usage
 
 Show layers in an image (tarball filename):
