@@ -33,6 +33,7 @@ func main() {
 				Action: func(c *cli.Context) error {
 					cfg := &config{
 						ref: c.Args().First(),
+						out: os.Stdout,
 					}
 					if err := inspect(cfg); err != nil {
 						return cli.Exit(c.Command.Name+": "+err.Error(), 1)
@@ -48,6 +49,7 @@ func main() {
 						ref:      c.Args().First(),
 						layerIDs: c.Args().Tail(),
 						sort:     c.Bool("sort"),
+						out:      os.Stdout,
 					}
 
 					if err := ls(cfg); err != nil {
@@ -71,6 +73,7 @@ func main() {
 						ref:       c.Args().First(),
 						files:     c.Args().Tail(),
 						outputDir: c.String("output_dir"),
+						out:       os.Stdout,
 					}
 					if err := extract(cfg); err != nil {
 						return cli.Exit(c.Command.Name+": "+err.Error(), 1)
@@ -102,6 +105,8 @@ type config struct {
 	files []string
 	// outputDir is the directory to write extracted files to.
 	outputDir string
+	// out is the writer for output.
+	out io.Writer
 }
 
 // makeOptions returns the options for crane.
@@ -175,13 +180,17 @@ func inspect(cfg *config) error {
 	if err != nil {
 		return err
 	}
+	return inspectImage(cfg, image)
+}
 
+// inspectImage prints info about the layers of an image.
+func inspectImage(cfg *config, image v1.Image) error {
 	layers, err := image.Layers()
 	if err != nil {
 		return err
 	}
 
-	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	tw := tabwriter.NewWriter(cfg.out, 0, 0, 2, ' ', 0)
 	tw.Write([]byte("N\tLayer\tSize\n"))
 	for i, layer := range layers {
 		hash, err := layer.DiffID()
@@ -205,7 +214,11 @@ func ls(cfg *config) error {
 	if err != nil {
 		return err
 	}
+	return lsImage(cfg, image)
+}
 
+// lsImage lists files in the layers of an image.
+func lsImage(cfg *config, image v1.Image) error {
 	layers, err := image.Layers()
 	if err != nil {
 		return fmt.Errorf("getting layers: %w", err)
@@ -264,8 +277,8 @@ func files(cfg *config, layer v1.Layer) error {
 
 	tarReader := tar.NewReader(uncompressed)
 
-	fmt.Printf("\n--- %s ---\n", hash)
-	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintf(cfg.out, "\n--- %s ---\n", hash)
+	tw := tabwriter.NewWriter(cfg.out, 0, 0, 2, ' ', 0)
 	tw.Write([]byte("Mode\tSize\tName\n"))
 
 	headers := make([]*tar.Header, 0)
@@ -310,6 +323,11 @@ func extract(cfg *config) error {
 		return err
 	}
 
+	return extractFromImage(cfg, image)
+}
+
+// extractFromImage extracts files from the given image.
+func extractFromImage(cfg *config, image v1.Image) error {
 	layers, err := image.Layers()
 	if err != nil {
 		return fmt.Errorf("getting layers: %w", err)
@@ -384,7 +402,7 @@ func extract(cfg *config) error {
 // extractFile writes the contents of a tar entry to stdout or to a file under outputDir.
 func extractFile(cfg *config, name string, r io.Reader) error {
 	if cfg.outputDir == "" {
-		_, err := io.Copy(os.Stdout, r)
+		_, err := io.Copy(cfg.out, r)
 		return err
 	}
 
