@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/dustin/go-humanize"
@@ -31,6 +33,7 @@ func main() {
 				Action: func(c *cli.Context) error {
 					cfg := &config{
 						ref: c.Args().First(),
+						out: os.Stdout,
 					}
 					if err := inspect(cfg); err != nil {
 						return cli.Exit(c.Command.Name+": "+err.Error(), 1)
@@ -46,6 +49,7 @@ func main() {
 						ref:      c.Args().First(),
 						layerIDs: c.Args().Tail(),
 						sort:     c.Bool("sort"),
+						out:      os.Stdout,
 					}
 
 					if err := ls(cfg); err != nil {
@@ -58,6 +62,28 @@ func main() {
 						Name:    "sort",
 						Aliases: []string{"S"},
 						Usage:   "Sort by size (largest file first) before sorting the operands in lexicographical order.",
+					},
+				},
+			},
+			{
+				Name:  "extract",
+				Usage: "extract files from an image and print to stdout",
+				Action: func(c *cli.Context) error {
+					cfg := &config{
+						ref:       c.Args().First(),
+						files:     c.Args().Tail(),
+						outputDir: c.String("output_dir"),
+						out:       os.Stdout,
+					}
+					if err := extract(cfg); err != nil {
+						return cli.Exit(c.Command.Name+": "+err.Error(), 1)
+					}
+					return nil
+				},
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:  "output_dir",
+						Usage: "Write extracted files to this directory instead of stdout",
 					},
 				},
 			},
@@ -75,6 +101,12 @@ type config struct {
 	layerIDs []string
 	// sort is true if the output should be sorted by size.
 	sort bool
+	// files is the list of file paths to extract.
+	files []string
+	// outputDir is the directory to write extracted files to.
+	outputDir string
+	// out is the writer for output.
+	out io.Writer
 }
 
 // makeOptions returns the options for crane.
@@ -148,13 +180,17 @@ func inspect(cfg *config) error {
 	if err != nil {
 		return err
 	}
+	return inspectImage(cfg, image)
+}
 
+// inspectImage prints info about the layers of an image.
+func inspectImage(cfg *config, image v1.Image) error {
 	layers, err := image.Layers()
 	if err != nil {
 		return err
 	}
 
-	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	tw := tabwriter.NewWriter(cfg.out, 0, 0, 2, ' ', 0)
 	tw.Write([]byte("N\tLayer\tSize\n"))
 	for i, layer := range layers {
 		hash, err := layer.DiffID()
@@ -178,7 +214,11 @@ func ls(cfg *config) error {
 	if err != nil {
 		return err
 	}
+	return lsImage(cfg, image)
+}
 
+// lsImage lists files in the layers of an image.
+func lsImage(cfg *config, image v1.Image) error {
 	layers, err := image.Layers()
 	if err != nil {
 		return fmt.Errorf("getting layers: %w", err)
@@ -237,8 +277,8 @@ func files(cfg *config, layer v1.Layer) error {
 
 	tarReader := tar.NewReader(uncompressed)
 
-	fmt.Printf("\n--- %s ---\n", hash)
-	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintf(cfg.out, "\n--- %s ---\n", hash)
+	tw := tabwriter.NewWriter(cfg.out, 0, 0, 2, ' ', 0)
 	tw.Write([]byte("Mode\tSize\tName\n"))
 
 	headers := make([]*tar.Header, 0)
@@ -270,4 +310,116 @@ func files(cfg *config, layer v1.Layer) error {
 	}
 
 	return tw.Flush()
+}
+
+// extract extracts files from an image and writes them to stdout or a directory.
+func extract(cfg *config) error {
+	if len(cfg.files) == 0 {
+		return fmt.Errorf("no files specified")
+	}
+
+	image, err := getImage(cfg.ref)
+	if err != nil {
+		return err
+	}
+
+	return extractFromImage(cfg, image)
+}
+
+// extractFromImage extracts files from the given image.
+func extractFromImage(cfg *config, image v1.Image) error {
+	layers, err := image.Layers()
+	if err != nil {
+		return fmt.Errorf("getting layers: %w", err)
+	}
+
+	// Build a set of wanted files for quick lookup.
+	// Normalize by stripping leading slash.
+	wanted := make(map[string]bool, len(cfg.files))
+	for _, f := range cfg.files {
+		wanted[strings.TrimPrefix(f, "/")] = true
+	}
+
+	found := make(map[string]bool, len(cfg.files))
+
+	// Search layers in reverse order (last wins) to match container runtime behavior.
+	for i := len(layers) - 1; i >= 0; i-- {
+		layer := layers[i]
+
+		uncompressed, err := layer.Uncompressed()
+		if err != nil {
+			return fmt.Errorf("getting layer: %w", err)
+		}
+
+		tarReader := tar.NewReader(uncompressed)
+		for {
+			header, err := tarReader.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				uncompressed.Close()
+				return fmt.Errorf("reading tar: %w", err)
+			}
+
+			name := strings.TrimPrefix(header.Name, "./")
+			name = strings.TrimPrefix(name, "/")
+
+			if !wanted[name] || found[name] {
+				continue
+			}
+
+			if err := extractFile(cfg, name, tarReader); err != nil {
+				uncompressed.Close()
+				return err
+			}
+			found[name] = true
+
+			// Stop early if all files found.
+			if len(found) == len(wanted) {
+				uncompressed.Close()
+				return nil
+			}
+		}
+		uncompressed.Close()
+	}
+
+	// Report any files not found.
+	var missing []string
+	for _, f := range cfg.files {
+		name := strings.TrimPrefix(f, "/")
+		if !found[name] {
+			missing = append(missing, f)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("files not found: %s", strings.Join(missing, ", "))
+	}
+
+	return nil
+}
+
+// extractFile writes the contents of a tar entry to stdout or to a file under outputDir.
+func extractFile(cfg *config, name string, r io.Reader) error {
+	if cfg.outputDir == "" {
+		_, err := io.Copy(cfg.out, r)
+		return err
+	}
+
+	outPath := filepath.Join(cfg.outputDir, name)
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+		return fmt.Errorf("creating directory for %s: %w", name, err)
+	}
+
+	f, err := os.Create(outPath)
+	if err != nil {
+		return fmt.Errorf("creating file %s: %w", outPath, err)
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(f, r); err != nil {
+		return fmt.Errorf("writing file %s: %w", outPath, err)
+	}
+
+	return nil
 }
