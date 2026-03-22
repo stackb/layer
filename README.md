@@ -16,6 +16,7 @@ USAGE:
 COMMANDS:
    inspect  print info about the layers of an image
    ls       ls prints the files of a layer
+   extract  extract files from an image and print to stdout
    help, h  Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
@@ -88,6 +89,16 @@ Mode        Size    Name
 Mode        Size    Name
 -rwxrwxr-x  4.6 kB  docker-entrypoint.d/30-tune-worker-processes.sh
 ```
+
+Extract files from an image:
+
+```sh
+layer extract image.tar etc/nginx/nginx.conf           # print to stdout
+layer extract image.tar etc/nginx/nginx.conf --output_dir /tmp  # write to /tmp/etc/nginx/nginx.conf
+layer extract image.tar file1 file2 file3               # multiple files
+```
+
+Extract uses the topmost layer containing each file, matching container runtime behavior.
 
 ---
 
